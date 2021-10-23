@@ -10,7 +10,7 @@ import (
 
 func (a *application) serverError(w http.ResponseWriter, err error) {
 	trace := fmt.Sprintf("%s\n%s", err.Error(), debug.Stack())
-	a.errorLog.Output(2, trace)
+	a.logger.Errorln(trace)
 
 	http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 }

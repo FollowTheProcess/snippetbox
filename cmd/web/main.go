@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"flag"
 	"html/template"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -13,67 +12,71 @@ import (
 
 	"github.com/FollowTheProcess/snippetbox/pkg/models/mysql"
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/sirupsen/logrus"
 )
 
 const (
 	defaultPort = ":8000"
-	defaultDSN  = "web:snippetpassword@/snippetbox?parseTime=true"
+	defaultDSN  = ""
 )
 
 type application struct {
-	errorLog      *log.Logger
-	infoLog       *log.Logger
+	logger        *logrus.Logger
 	snippets      *mysql.SnippetModel
 	templateCache map[string]*template.Template
 }
 
 func main() {
-	addr := flag.String("addr", defaultPort, "HTTP network address")
+	// Accept command line flags for configuration and secrets
+	port := flag.String("port", defaultPort, "HTTP network address")
 	dsn := flag.String("dsn", defaultDSN, "MySQL data source name")
 	flag.Parse()
 
-	infoLog := log.New(os.Stdout, "INFO:\t", log.LstdFlags)
-	errorLog := log.New(os.Stderr, "ERROR:\t", log.Ldate|log.Ltime|log.Lshortfile)
+	// Set up logger
+	log := logrus.New()
+	log.Out = os.Stdout
 
-	infoLog.Println("Establishing db connection")
+	if *dsn == "" {
+		log.Fatalln("dsn must not be empty")
+	}
+
+	log.Infoln("Establishing db connection")
 	db, err := openDB(*dsn)
 	if err != nil {
-		errorLog.Fatalf("Error connecting to DB: %s\n", err)
+		log.WithError(err).Fatalln("Error connecting to DB")
 	}
 	defer func() {
-		infoLog.Println("Closing DB connection")
+		log.Infoln("Closing DB connection")
 		db.Close()
 	}()
 
 	// Initialise a new template cache
 	templateCache, err := newTemplateCache("./ui/html/")
 	if err != nil {
-		errorLog.Fatal(err)
+		log.WithError(err).Fatalln("Error initialising template cache")
 	}
 
 	app := &application{
-		errorLog:      errorLog,
-		infoLog:       infoLog,
+		logger:        log,
 		snippets:      &mysql.SnippetModel{DB: db},
 		templateCache: templateCache,
 	}
 
 	srv := &http.Server{
-		Addr:         *addr,
-		ErrorLog:     errorLog,
+		Addr:         *port,
 		Handler:      app.routes(),
-		ReadTimeout:  5 * time.Second,   // max time to read request from the client
-		WriteTimeout: 10 * time.Second,  // max time to write response to the client
-		IdleTimeout:  120 * time.Second, // max time for connections using TCP Keep-Alive
+		ReadTimeout:  5 * time.Second,  // max time to read request from the client
+		WriteTimeout: 10 * time.Second, // max time to write response to the client
+		IdleTimeout:  60 * time.Second, // max time for connections using TCP Keep-Alive
 	}
 
 	// start the server in a goroutine so it runs off doing it's own thing
 	go func() {
-		infoLog.Printf("Starting server on %s\n", *addr)
+		log.WithField("port", *port).Infoln("Starting server on port")
 
 		err := srv.ListenAndServe()
 		if err != nil && err != http.ErrServerClosed {
-			errorLog.Printf("Error starting server: %s\n", err)
+			log.WithError(err).Errorln("Error starting server")
 		}
 	}()
 
@@ -84,16 +87,16 @@ func main() {
 
 	// Block the rest of the code until a signal is received.
 	sig := <-c
-	infoLog.Println("Got signal:", sig)
-	infoLog.Println("Shutting everything down gracefully")
+	log.WithField("sig", sig).Infoln("Got signal")
+	log.Infoln("Shutting everything down gracefully")
 
 	// gracefully shutdown the server, waiting max 30 seconds for current operations to complete
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
-		errorLog.Fatal("Graceful shutdown failed")
+		log.WithError(err).Fatalln("Graceful shutdown failed")
 	}
-	infoLog.Println("Server shutdown successfully")
+	log.Infoln("Server shutdown successfully")
 }
 
 func openDB(dsn string) (*sql.DB, error) {
