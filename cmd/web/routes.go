@@ -16,6 +16,7 @@ func (a *application) routes() http.Handler {
 	// HTTP GET Handlers
 	router.HandleFunc("/", a.home).Methods(http.MethodGet)
 	router.HandleFunc("/snippet/{id:[0-9]+}", a.showSnippet).Methods(http.MethodGet)
+	router.HandleFunc("/snippet/create", a.createSnippetForm).Methods(http.MethodGet)
 
 	// HTTP POST Handlers
 	router.HandleFunc("/snippet/create", a.createSnippet).Methods(http.MethodPost)
