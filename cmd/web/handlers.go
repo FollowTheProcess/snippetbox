@@ -1,10 +1,12 @@
 package main
 
 import (
+	"errors"
 	"fmt"
-	"html/template"
 	"net/http"
 	"strconv"
+
+	"github.com/FollowTheProcess/snippetbox/pkg/models"
 )
 
 func (a *application) home(w http.ResponseWriter, r *http.Request) {
@@ -13,23 +15,13 @@ func (a *application) home(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	files := []string{
-		"./ui/html/home.page.tmpl",
-		"./ui/html/base.layout.tmpl",
-		"./ui/html/footer.partial.tmpl",
-	}
-
-	ts, err := template.ParseFiles(files...)
+	s, err := a.snippets.Latest()
 	if err != nil {
 		a.serverError(w, err)
 		return
 	}
 
-	err = ts.Execute(w, nil)
-	if err != nil {
-		a.serverError(w, err)
-		return
-	}
+	a.render(w, r, "home.page.tmpl", &templateData{Snippets: s})
 }
 
 func (a *application) showSnippet(w http.ResponseWriter, r *http.Request) {
@@ -39,7 +31,17 @@ func (a *application) showSnippet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Fprintf(w, "Display snippet with ID %d...", id)
+	s, err := a.snippets.Get(id)
+	if err != nil {
+		if errors.Is(err, models.ErrNoRecord) {
+			a.notFound(w)
+		} else {
+			a.serverError(w, err)
+		}
+		return
+	}
+
+	a.render(w, r, "show.page.tmpl", &templateData{Snippet: s})
 }
 
 func (a *application) createSnippet(w http.ResponseWriter, r *http.Request) {
@@ -49,5 +51,16 @@ func (a *application) createSnippet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Write([]byte("Create a new snippet..."))
+	title := "O snail"
+	content := "O snail\nClimt Mount Fuji, \nBut slowly, slowly!\n\n- Kobayashi Issa"
+	expires := "7"
+
+	id, err := a.snippets.Insert(title, content, expires)
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
+
+	// Redirect the user to the relevant page for the snippet
+	http.Redirect(w, r, fmt.Sprintf("/snippet?id=%d", id), http.StatusSeeOther)
 }
